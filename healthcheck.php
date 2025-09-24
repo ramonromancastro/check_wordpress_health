@@ -56,7 +56,7 @@ add_filter('rest_authentication_errors', function ($result) {
 
     $route = $_SERVER['REQUEST_URI'];
 
-    if (strpos($route, '/wp-json/wp-healthcheck/v1/status') !== false) {
+    if (strpos($route, '/wp-json/whealthcheck/v1/status') !== false) {
         return true; // Permitimos este endpoint sin login
     }
 
@@ -73,7 +73,7 @@ add_action("shutdown", function () {
 });
 
 add_action("rest_api_init", function () {
-    register_rest_route("wp-healthcheck/v1", "/status", [
+    register_rest_route("healthcheck/v1", "/status", [
         "methods" => "GET",
         "callback" => "wp_healthcheck_status",
         "permission_callback" => "__return_true",
@@ -193,7 +193,7 @@ function wp_healthcheck_settings_page()
     }
 
     $current_key = wp_healthcheck_get_api_key();
-    $endpoint_url = rest_url('wp-healthcheck/v1/status') . '?token=' . urlencode($current_key);
+    $endpoint_url = rest_url('healthcheck/v1/status') . '?token=' . urlencode($current_key);
     ?>
 <div class="wrap">
     <h1>Configuración del Healthcheck</h1>
@@ -230,7 +230,7 @@ function generateRandomKey() {
     input.value = key;
 
     // Actualiza la URL del endpoint
-    const endpointUrl = '<?php echo rest_url('wp-healthcheck/v1/status'); ?>?token=' + key;
+    const endpointUrl = '<?php echo rest_url('healthcheck/v1/status'); ?>?token=' + key;
     document.getElementById('endpoint-url').textContent = endpointUrl;
 }
 </script>
