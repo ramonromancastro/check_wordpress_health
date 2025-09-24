@@ -13,7 +13,7 @@ Plugin de Nagios para comprobar el estado de salud de una instancia de WordPress
 
 > La instancia de WordPress debe tener habilitado **WordPress REST API (wp-json)**
 
-El archivo _healthcheck.php_ debe copiarse en el directorio wp-content de la instancia de WordPress que se desea monitorizar.
+El archivo _healthcheck.php_ debe copiarse en el directorio _wp-content/mu-plugins/_ de la instancia de WordPress que se desea monitorizar.
 
 ## Opciones del plugin
 
