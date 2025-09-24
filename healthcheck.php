@@ -3,7 +3,7 @@
 Plugin Name: Custom Healthcheck (MU)
 Description: Endpoint REST JSON para monitorear WordPress.
 Author: Ramón Román Castro <ramonromancastro@gmail.com>
-Version: 0.20250924.1
+Version: 0.20250924.2
 */
 
 // Genera una clave segura de 32 caracteres hexadecimales
@@ -18,11 +18,16 @@ register_activation_hook(__FILE__, function () {
         $key = wp_healthcheck_generate_password();
         update_option('wp_healthcheck_api_key', $key);
     }
+    
+    if (!get_option('wp_healthcheck_verifyssl')) {
+        update_option('wp_healthcheck_verifyssl', 1);
+    }
 });
 
 // Elimina la clave de API cuando se desactiva el plugin
 register_deactivation_hook(__FILE__, function () {
     delete_option('wp_healthcheck_api_key');
+    delete_option('wp_healthcheck_verifyssl');
 });
 
 // Clave de API autogenerada si no está definida como constante
@@ -56,7 +61,7 @@ add_filter('rest_authentication_errors', function ($result) {
 
     $route = $_SERVER['REQUEST_URI'];
 
-    if (strpos($route, '/wp-json/whealthcheck/v1/status') !== false) {
+    if (strpos($route, '/wp-json/healthcheck/v1/status') !== false) {
         return true; // Permitimos este endpoint sin login
     }
 
@@ -104,6 +109,40 @@ function wp_healthcheck_status(WP_REST_Request $request)
     // Continúa con los chequeos normales...
     $status = "OK";
     $results = [];
+
+    $sslverify = get_option('wp_healthcheck_sslverify');
+    $url_args = array( 'timeout' => 10);
+    if ($sslverify == 0) {
+        $url_args['sslverify'] = false;
+    }
+
+    $url = home_url( '/' );
+    $response = wp_remote_get( $url, $url_args );
+
+    if ( is_wp_error( $response ) ) {
+        $results['load'] = [
+            'status'  => 'FAIL',
+            'error' => $response->get_error_message(),
+        ];
+        $status = "FAIL";
+    }
+    else {
+        $code = wp_remote_retrieve_response_code( $response );
+        $body = wp_remote_retrieve_body( $response );
+
+        if ( $code === 200 && strpos( $body, '<title>' ) !== false ) {
+            $results['load'] = [
+                'status'  => 'OK',
+                'message' => 'WordPress responds correctly',
+            ];
+        } else {
+            $results['load'] = [
+                'status'  => 'FAIL',
+                'error' => 'The page did not return the expected content',
+            ];
+            $status = "FAIL";
+        }
+    }
 
     global $wpdb;
     try {
@@ -190,9 +229,11 @@ function wp_healthcheck_settings_page()
             update_option('wp_healthcheck_api_key', $new_key);
             echo '<div class="updated"><p>Ajustes guardados.</p></div>';
         }
+        update_option('wp_healthcheck_sslverify', isset($_POST['wp_healthcheck_sslverify']) ? 1 : 0);
     }
 
     $current_key = wp_healthcheck_get_api_key();
+    $current_sslverify = get_option('wp_healthcheck_sslverify');
     $endpoint_url = rest_url('healthcheck/v1/status') . '?token=' . urlencode($current_key);
     ?>
 <div class="wrap">
@@ -211,6 +252,16 @@ function wp_healthcheck_settings_page()
                     <button type="button" class="button" onclick="generateRandomKey()">Generar nueva</button>
                     <p class="description">Usa este token como parámetro <code>?token=...</code> o en el header <code>X-API-Key</code>.</p>
                     <p><strong>URL del endpoint:</strong><br><code id="endpoint-url"><?php echo esc_url($endpoint_url); ?></code></p>
+                </td>
+            </tr>
+        </table>
+        
+        <table class="form-table">
+            <tr>
+                <th scope="row"><label for="wp_healthcheck_sslverify">SSL Verification</label></th>
+                <td>
+                    <input type="checkbox" name="wp_healthcheck_sslverify" id="wp_healthcheck_sslverify" value="1" <?php if ($current_sslverify == 1) { echo 'checked'; }; ?> />
+                    <p class="description">Usa esta opción para desactivar la comprobación de certificados a la hora de realizar el chequeo de carga de la web.</p>
                 </td>
             </tr>
         </table>
