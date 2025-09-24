@@ -34,5 +34,3 @@ Options:
   -V  Muestra la versión del plugin
   -h  Muestra esta ayuda
 ```
-  $STATE_CRITICAL CRITICAL
-  $STATE_UNKNOWN UNKNOWN
