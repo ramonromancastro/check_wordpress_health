@@ -23,18 +23,19 @@ En la sección _Ajustes > Healthcheck API_ se puede configurar el token de acces
 ## Opciones del plugin
 
 ```
-Usage: check_wordpress_health.sh -H <host> -p <port> -a <token> [-u <endpoint>]
-                [-S] [-k] [-t <timeout>] [-x] [-v] [-V] [-h]
+Usage: $PROGNAME -H <host> -p <port> -a <token> [-u <endpoint>]
+                [-S] [-k] [-t <timeout>] [-v] [-V] [-h]
 
 Options:
-  -H  Host donde se ejecuta la aplicación Spring Boot (requerido)
+  -H  Host donde se ejecuta la aplicación (requerido)
   -p  Puerto del servicio (requerido)
   -a  Token API (requerido)
-  -u  Ruta del endpoint (por defecto: /wp-json/healthcheck/v1/status)
+  -u  Ruta del endpoint (por defecto: ${ENDPOINT})
   -S  Usar HTTPS en lugar de HTTP
   -k  Ignorar errores de certificado SSL
-  -t  Timeout en segundos para la petición (por defecto: 10)
-  -x  Incluir performance data en la salida
+  -t  Timeout en segundos para la petición (por defecto: ${TIMEOUT})
+  -x  Comprobaciones excluídas separadas por coma (por defecto: <vacío>)
+      Valores disponibles: cron,database,filesystem,load,updates
   -v  Modo verbose (muestra la respuesta completa del endpoint)
   -V  Muestra la versión del plugin
   -h  Muestra esta ayuda
