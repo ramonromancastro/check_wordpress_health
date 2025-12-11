@@ -3,7 +3,7 @@
 Plugin Name: Custom Healthcheck (MU)
 Description: Endpoint REST JSON para monitorear WordPress.
 Author: Ramón Román Castro <ramonromancastro@gmail.com>
-Version: 0.20250924.2
+Version: 0.20251211.1
 */
 
 // Genera una clave segura de 32 caracteres hexadecimales
@@ -82,6 +82,15 @@ add_action("rest_api_init", function () {
         "methods" => "GET",
         "callback" => "wp_healthcheck_status",
         "permission_callback" => "__return_true",
+        "args" => [
+            "exclude" => [
+                "required" => false,
+                "validate_callback" => function($param, $request, $key) {
+                    return is_string($param);
+                },
+                "default" => ""
+            ],
+        ],
     ]);
 });
 
@@ -101,107 +110,256 @@ function wp_healthcheck_status(WP_REST_Request $request)
 
     if (!$expected_token || $provided_token !== $expected_token) {
         return new WP_REST_Response(
-            ["status" => "FORBIDDEN", "error" => "Token inválido o ausente."],
+            ["status" => "FORBIDDEN", "message" => "Invalid or missing token"],
             403
         );
+    }
+
+    // Procesamos las exclusiones
+    $exclude_raw = $request->get_param("exclude");
+    $exclude_list = [];
+    if (!empty($exclude_raw)) {
+        $exclude_list = array_map('trim', explode(',', $exclude_raw));
     }
 
     // Continúa con los chequeos normales...
     $status = "OK";
     $results = [];
 
-    $sslverify = get_option('wp_healthcheck_sslverify');
-    $url_args = array( 'timeout' => 10);
-    if ($sslverify == 0) {
-        $url_args['sslverify'] = false;
-    }
+    // 
+    // Load page test
+    //
+    
+    if (!in_array('load', $exclude_list)) {
+        $sslverify = get_option('wp_healthcheck_sslverify');
+        $url_args = array( 'timeout' => 10);
+        if ($sslverify == 0) {
+            $url_args['sslverify'] = false;
+        }
 
-    $url = home_url( '/' );
-    $response = wp_remote_get( $url, $url_args );
+        $url = home_url( '/' );
+        $response = wp_remote_get( $url, $url_args );
 
-    if ( is_wp_error( $response ) ) {
-        $results['load'] = [
-            'status'  => 'FAIL',
-            'error' => $response->get_error_message(),
-        ];
-        $status = "FAIL";
-    }
-    else {
-        $code = wp_remote_retrieve_response_code( $response );
-        $body = wp_remote_retrieve_body( $response );
-
-        if ( $code === 200 && strpos( $body, '<title>' ) !== false ) {
-            $results['load'] = [
-                'status'  => 'OK',
-                'message' => 'WordPress responds correctly',
-            ];
-        } else {
+        if ( is_wp_error( $response ) ) {
             $results['load'] = [
                 'status'  => 'FAIL',
-                'error' => 'The page did not return the expected content',
+                'message' => $response->get_error_message(),
+            ];
+            $status = "FAIL";
+        }
+        else {
+            $code = wp_remote_retrieve_response_code( $response );
+            $body = wp_remote_retrieve_body( $response );
+
+            if ( $code === 200 && strpos( $body, '<title>' ) !== false ) {
+                $results['load'] = [
+                    'status'  => 'OK',
+                    'message' => 'Web connection successful',
+                ];
+            } else {
+                $results['load'] = [
+                    'status'  => 'FAIL',
+                    'message' => 'The page did not return the expected content',
+                ];
+                $status = "FAIL";
+            }
+        }
+    }
+    
+    // 
+    // Database test
+    //
+    
+    if (!in_array('database', $exclude_list)) {
+        global $wpdb;
+        try {
+            $wpdb->query("SELECT 1");
+            $results["database"] = ["status" => "OK","message" => "Database connection successful"];
+        } catch (Exception $e) {
+            $results["database"] = [
+                "status" => "FAIL",
+                "message" => $e->getMessage(),
             ];
             $status = "FAIL";
         }
     }
-
-    global $wpdb;
-    try {
-        $wpdb->query("SELECT 1");
-        $results["database"] = ["status" => "OK"];
-    } catch (Exception $e) {
-        $results["database"] = [
-            "status" => "FAIL",
-            "error" => $e->getMessage(),
-        ];
-        $status = "FAIL";
-    }
-
-    $path = WP_CONTENT_DIR;
-    if (is_dir($path) && is_writable($path)) {
-        $results["filesystem"] = ["status" => "OK"];
-    } else {
-        $results["filesystem"] = [
-            "status" => "FAIL",
-            "error" => "No writable access to $path",
-        ];
-        $status = "FAIL";
-    }
-
-    $cron = _get_cron_array();
-    if (!is_array($cron) || count($cron) === 0) {
-        $cron_status = [
-            "status" => "FAIL",
-            "error" => "No hay tareas cron registradas",
-        ];
-        $status = "FAIL";
-    } else {
-        $last_run = get_option("cron_last_run");
-
-        if ($last_run) {
-            $elapsed = time() - $last_run;
-            if ($elapsed > 86400) {
-                $cron_status = [
-                    "status" => "WARNING",
-                    "warning" =>
-                        "El cron no se ha ejecutado en las últimas 24 horas",
-                    "last_run_seconds_ago" => $elapsed,
-                ];
-                if ($status !== "FAIL") {
-                    $status = "WARNING";
-                }
-            } else {
-                $cron_status["status"] = "OK";
-                $cron_status["last_run_seconds_ago"] = $elapsed;
-            }
+    
+    // 
+    // Database test
+    //
+    
+    if (!in_array('filesystem', $exclude_list)) {
+        $path = WP_CONTENT_DIR;
+        if (is_dir($path) && is_writable($path)) {
+            $results["filesystem"] = ["status" => "OK", "message" => "wp-content directory is writable"];
         } else {
+            $results["filesystem"] = [
+                "status" => "FAIL",
+                "message" => "wp-content directory is not writable",
+            ];
+            $status = "FAIL";
+        }
+    }
+    
+    // 
+    // Cron test
+    //
+
+    if (!in_array('cron', $exclude_list)) {
+        $cron = _get_cron_array();
+        if (!is_array($cron) || count($cron) === 0) {
             $cron_status = [
                 "status" => "FAIL",
-                "error" => "No hay registro de la última ejecución del cron",
+                "message" => "No WP-Cron execution detected",
             ];
             $status = "FAIL";
+        } else {
+            $last_run = get_option("cron_last_run");
+
+            if ($last_run) {
+                $elapsed = time() - $last_run;
+                if ($elapsed > 86400) {
+                    $cron_status = [
+                        "status" => "WARNING",
+                        "message" =>
+                            "WP-Cron has not run within the last 24 hours",
+                        "last_run_seconds_ago" => $elapsed,
+                    ];
+                    if ($status !== "FAIL") {
+                        $status = "WARNING";
+                    }
+                } else {
+                    $cron_status["status"] = "OK";
+                    $cron_status["message"] = "WP-Cron has run within the last 24 hours";
+                    $cron_status["last_run_seconds_ago"] = $elapsed;
+                }
+            } else {
+                $cron_status = [
+                    "status" => "FAIL",
+                    "message" => "Last WP-Cron execution not recorded",
+                ];
+                $status = "FAIL";
+            }
         }
+        $results["cron"] = $cron_status;
     }
-    $results["cron"] = $cron_status;
+
+    // 
+    // Updates test
+    //
+    
+    if (!in_array('updates', $exclude_list)) {
+
+        // Forzar comprobaciones
+        // wp_version_check();     // Core
+        // wp_update_plugins();    // Plugins
+        // wp_update_themes();     // Temas
+
+        // Obtener resultados de cada tipo
+        $core_updates   = get_site_transient('update_core');
+        $plugin_updates = get_site_transient('update_plugins');
+        $theme_updates  = get_site_transient('update_themes');
+        $translation_updates = get_site_transient('update_translations');
+
+        // Inicializar contadores
+        $updates = [];
+        $last_checked_times = [];
+
+        // ----------------------
+        // Core
+        // ----------------------
+        if ( isset($core_updates->updates) && is_array($core_updates->updates) ) {
+            foreach ($core_updates->updates as $update) {
+                if ( isset($update->response) && $update->response === 'upgrade' ) {
+                    $updates[] = [
+                        'type'    => 'core',
+                        'name'    => 'WordPress Core',
+                        'version' => $update->current ?? 'unknown'
+                    ];
+                }
+            }
+            if (isset($core_updates->last_checked)) {
+                $last_checked_times[] = $core_updates->last_checked;
+            }
+        }
+
+        // ----------------------
+        // Plugins
+        // ----------------------
+        if ( isset($plugin_updates->response) && !empty($plugin_updates->response) ) {
+            foreach ($plugin_updates->response as $plugin_file => $plugin_info) {
+                $updates[] = [
+                    'type'    => 'plugin',
+                    'name'    => $plugin_info->slug ?? $plugin_file,
+                    'version' => $plugin_info->new_version ?? 'unknown'
+                ];
+            }
+            if (isset($plugin_updates->last_checked)) {
+                $last_checked_times[] = $plugin_updates->last_checked;
+            }
+        }
+
+        // ----------------------
+        // Temas
+        // ----------------------
+        if ( isset($theme_updates->response) && !empty($theme_updates->response) ) {
+            foreach ($theme_updates->response as $theme_slug => $theme_info) {
+                $updates[] = [
+                    'type'    => 'theme',
+                    'name'    => $theme_slug,
+                    'version' => $theme_info['new_version'] ?? 'unknown'
+                ];
+            }
+            if (isset($theme_updates->last_checked)) {
+                $last_checked_times[] = $theme_updates->last_checked;
+            }
+        }
+
+        // ----------------------
+        // Traducciones
+        // ----------------------
+        if ( isset($translation_updates->updates) && !empty($translation_updates->updates) ) {
+            foreach ($translation_updates->updates as $translation) {
+                $updates[] = [
+                    'type'    => 'translation',
+                    'name'    => $translation->slug ?? 'translation',
+                    'version' => $translation->version ?? 'unknown'
+                ];
+            }
+            if (isset($translation_updates->last_checked)) {
+                $last_checked_times[] = $translation_updates->last_checked;
+            }
+        }
+
+        // ----------------------
+        // Resultado final
+        // ----------------------
+        $status = empty($updates) ? 'OK' : 'WARNING';
+
+        if (empty($updates)) {
+            $message = 'No updates available.';
+        } else {
+            $updates = array_unique($updates, SORT_REGULAR);
+            $total = count($updates);
+            $last_check_time = !empty($last_checked_times)
+                ? date('Y-m-d H:i:s', max($last_checked_times))
+                : 'unknown';
+
+            $lines = [];
+            $lines[] = "{$total} updates available. Last check: {$last_check_time}";
+
+            foreach ($updates as $update) {
+                $lines[] = "- [{$update['type']}] {$update['name']}: {$update['version']}";
+            }
+
+            $message = implode("\n", $lines);
+        }
+
+        $results['updates'] = [
+            'status'  => $status,
+            'message' => $message,
+        ];
+    }
 
     return new WP_REST_Response(
         ["status" => $status, "checks" => $results],
@@ -258,7 +416,7 @@ function wp_healthcheck_settings_page()
         
         <table class="form-table">
             <tr>
-                <th scope="row"><label for="wp_healthcheck_sslverify">SSL Verification</label></th>
+                <th scope="row"><label for="wp_healthcheck_sslverify">Disable SSL Verification</label></th>
                 <td>
                     <input type="checkbox" name="wp_healthcheck_sslverify" id="wp_healthcheck_sslverify" value="1" <?php if ($current_sslverify == 1) { echo 'checked'; }; ?> />
                     <p class="description">Usa esta opción para desactivar la comprobación de certificados a la hora de realizar el chequeo de carga de la web.</p>
