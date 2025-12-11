@@ -17,7 +17,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 
-VERSION="1.5"
+VERSION="1.7"
 PROGNAME=$(basename "$0")
 
 # Constantes de estado Nagios
@@ -28,29 +28,30 @@ STATE_UNKNOWN=3
 
 # Config por defecto
 HOST="localhost"
-PORT="8080"
+PORT="80"
 TOKEN=""
 ENDPOINT="/wp-json/healthcheck/v1/status"
 USE_SSL=0
 IGNORE_CERT=0
 VERBOSE=0
 TIMEOUT=10
-INCLUDE_PERFDATA=0
+EXCLUDE=
 
 print_usage() {
 cat << EOF
 Usage: $PROGNAME -H <host> -p <port> -a <token> [-u <endpoint>]
-                [-S] [-k] [-t <timeout>] [-x] [-v] [-V] [-h]
+                [-S] [-k] [-t <timeout>] [-v] [-V] [-h]
 
 Options:
-  -H  Host donde se ejecuta la aplicación Spring Boot (requerido)
+  -H  Host donde se ejecuta la aplicación (requerido)
   -p  Puerto del servicio (requerido)
   -a  Token API (requerido)
   -u  Ruta del endpoint (por defecto: ${ENDPOINT})
   -S  Usar HTTPS en lugar de HTTP
   -k  Ignorar errores de certificado SSL
   -t  Timeout en segundos para la petición (por defecto: ${TIMEOUT})
-  -x  Incluir performance data en la salida
+  -x  Comprobaciones excluídas separadas por coma (por defecto: <vacío>)
+      Valores disponibles: cron,database,filesystem,load,updates
   -v  Modo verbose (muestra la respuesta completa del endpoint)
   -V  Muestra la versión del plugin
   -h  Muestra esta ayuda
@@ -74,7 +75,7 @@ if [[ $# -eq 0 ]]; then
 fi
 
 # Parseo de argumentos
-while getopts "H:p:a:u:Skvt:xVh" opt; do
+while getopts "H:p:a:u:Skvt:x:Vh" opt; do
   case "$opt" in
     H) HOST="$OPTARG" ;;
     p) PORT="$OPTARG" ;;
@@ -83,8 +84,8 @@ while getopts "H:p:a:u:Skvt:xVh" opt; do
     S) USE_SSL=1 ;;
     k) IGNORE_CERT=1 ;;
     v) VERBOSE=1 ;;
-    x) INCLUDE_PERFDATA=1 ;;
     t) TIMEOUT="$OPTARG" ;;
+    x) EXCLUDE="&exclude=$OPTARG" ;;
     V) print_version; exit $STATE_OK ;;
     h) print_usage; exit $STATE_OK ;;
     *) print_usage; exit $STATE_UNKNOWN ;;
@@ -110,11 +111,11 @@ CURL_CMD="curl -s --max-time $TIMEOUT"
 [[ $IGNORE_CERT -eq 1 ]] && CURL_CMD+=" -k"
 
 # Ejecución
-RESPONSE=$($CURL_CMD "$URL?token=${TOKEN}")
+RESPONSE=$($CURL_CMD "$URL?token=${TOKEN}${EXCLUDE}")
 CURL_EXIT=$?
 
 if [[ $CURL_EXIT -ne 0 ]]; then
-  echo "CRITICAL - No se pudo conectar a $URL (curl exit code $CURL_EXIT)"
+  echo "CRITICAL - Unable to connect to $URL (curl exit code $CURL_EXIT)"
   exit $STATE_CRITICAL
 fi
 
@@ -124,37 +125,33 @@ fi
 STATUS=$(echo "$RESPONSE" | jq -r '.status' 2>/dev/null)
 
 if [[ -z "$STATUS" || "$STATUS" == "null" ]]; then
-  echo "UNKNOWN - No se pudo extraer el estado desde la respuesta"
+  echo "UNKNOWN - Unbale to extract response"
   exit $STATE_UNKNOWN
 fi
-
-# Formato de performance data (opcional)
-PERF=""
-[[ $INCLUDE_PERFDATA -eq 1 ]] && PERF=" | status=\"$STATUS\""
 
 # --- SALIDA NAGIOS ---
 case "$STATUS" in
   OK)
-    CHECKS=$(echo "$RESPONSE" | jq -r '.checks | to_entries[] | "\(.key): \(.value.status)"')
-    echo "OK - Todos los chequeos correctos | $CHECKS"
+    CHECKS=$(echo "$RESPONSE" | jq -r '.checks | to_entries[] | "\(.key): \(.value.message)"')
+    echo -e "OK - All checks completed successfully\n$CHECKS"
     exit $STATE_OK
     ;;
-  WARN)
-    CHECKS=$(echo "$RESPONSE" | jq -r '.checks | to_entries[] | "\(.key): \(.value.status)"')
-    echo "WARNING - Algunos chequeos con advertencias | $CHECKS"
+  WARNING)
+    CHECKS=$(echo "$RESPONSE" | jq -r '.checks | to_entries[] | "[\(.value.status)] \(.key): \(.value.message )"')
+    echo -e "WARNING - At least one check returned a warning\n$CHECKS"
     exit $STATE_WARNING
     ;;
-  FAIL)
-    CHECKS=$(echo "$RESPONSE" | jq -r '.checks | to_entries[] | "\(.key): \(.value.status)"')
-    echo "CRITICAL - Fallos detectados | $CHECKS"
+  ERROR)
+    CHECKS=$(echo "$RESPONSE" | jq -r '.checks | to_entries[] | "\(.key): \(.value.message)"')
+    echo -e "CRITICAL - At least one error has occurred\n$CHECKS"
     exit $STATE_CRITICAL
     ;;
   FORBIDDEN)
-    echo "UNKNOWN - La petición de acceso ha sido denegada"
+    echo "UNKNOWN - Access denied"
     exit $STATE_UNKNOWN
     ;;
   *)
-    echo "UNKNOWN - Estado desconocido: $STATUS"
+    echo "UNKNOWN - Unknown status: $STATUS"
     exit $STATE_UNKNOWN
     ;;
 esac
