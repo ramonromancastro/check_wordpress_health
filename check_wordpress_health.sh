@@ -17,7 +17,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 
-VERSION="1.7"
+VERSION="1.8"
 PROGNAME=$(basename "$0")
 
 # Constantes de estado Nagios
@@ -125,14 +125,14 @@ fi
 STATUS=$(echo "$RESPONSE" | jq -r '.status' 2>/dev/null)
 
 if [[ -z "$STATUS" || "$STATUS" == "null" ]]; then
-  echo "UNKNOWN - Unbale to extract response"
+  echo "UNKNOWN - Unable to extract response"
   exit $STATE_UNKNOWN
 fi
 
 # --- SALIDA NAGIOS ---
 case "$STATUS" in
   OK)
-    CHECKS=$(echo "$RESPONSE" | jq -r '.checks | to_entries[] | "\(.key): \(.value.message)"')
+    CHECKS=$(echo "$RESPONSE" | jq -r '.checks | to_entries[] | "[\(.value.status)] \(.key): \(.value.message)"')
     echo -e "OK - All checks completed successfully\n$CHECKS"
     exit $STATE_OK
     ;;
@@ -141,8 +141,8 @@ case "$STATUS" in
     echo -e "WARNING - At least one check returned a warning\n$CHECKS"
     exit $STATE_WARNING
     ;;
-  ERROR)
-    CHECKS=$(echo "$RESPONSE" | jq -r '.checks | to_entries[] | "\(.key): \(.value.message)"')
+  CRITICAL)
+    CHECKS=$(echo "$RESPONSE" | jq -r '.checks | to_entries[] | "[\(.value.status)] \(.key): \(.value.message)"')
     echo -e "CRITICAL - At least one error has occurred\n$CHECKS"
     exit $STATE_CRITICAL
     ;;
