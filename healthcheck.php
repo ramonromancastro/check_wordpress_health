@@ -3,7 +3,7 @@
 Plugin Name: Custom Healthcheck (MU)
 Description: Endpoint REST JSON para monitorear WordPress.
 Author: Ramón Román Castro <ramonromancastro@gmail.com>
-Version: 0.20251211.1
+Version: 0.20260114.1
 */
 
 // Genera una clave segura de 32 caracteres hexadecimales
@@ -142,10 +142,10 @@ function wp_healthcheck_status(WP_REST_Request $request)
 
         if ( is_wp_error( $response ) ) {
             $results['load'] = [
-                'status'  => 'FAIL',
+                'status'  => 'CRITICAL',
                 'message' => $response->get_error_message(),
             ];
-            $status = "FAIL";
+            $status = 'CRITICAL';
         }
         else {
             $code = wp_remote_retrieve_response_code( $response );
@@ -158,10 +158,10 @@ function wp_healthcheck_status(WP_REST_Request $request)
                 ];
             } else {
                 $results['load'] = [
-                    'status'  => 'FAIL',
+                    'status'  => 'CRITICAL',
                     'message' => 'The page did not return the expected content',
                 ];
-                $status = "FAIL";
+                $status = 'CRITICAL';
             }
         }
     }
@@ -177,10 +177,10 @@ function wp_healthcheck_status(WP_REST_Request $request)
             $results["database"] = ["status" => "OK","message" => "Database connection successful"];
         } catch (Exception $e) {
             $results["database"] = [
-                "status" => "FAIL",
+                "status" => 'CRITICAL',
                 "message" => $e->getMessage(),
             ];
-            $status = "FAIL";
+            $status = 'CRITICAL';
         }
     }
     
@@ -194,10 +194,10 @@ function wp_healthcheck_status(WP_REST_Request $request)
             $results["filesystem"] = ["status" => "OK", "message" => "wp-content directory is writable"];
         } else {
             $results["filesystem"] = [
-                "status" => "FAIL",
+                "status" => 'CRITICAL',
                 "message" => "wp-content directory is not writable",
             ];
-            $status = "FAIL";
+            $status = 'CRITICAL';
         }
     }
     
@@ -209,10 +209,10 @@ function wp_healthcheck_status(WP_REST_Request $request)
         $cron = _get_cron_array();
         if (!is_array($cron) || count($cron) === 0) {
             $cron_status = [
-                "status" => "FAIL",
+                "status" => 'CRITICAL',
                 "message" => "No WP-Cron execution detected",
             ];
-            $status = "FAIL";
+            $status = 'CRITICAL';
         } else {
             $last_run = get_option("cron_last_run");
 
@@ -225,7 +225,7 @@ function wp_healthcheck_status(WP_REST_Request $request)
                             "WP-Cron has not run within the last 24 hours",
                         "last_run_seconds_ago" => $elapsed,
                     ];
-                    if ($status !== "FAIL") {
+                    if ($status !== 'CRITICAL') {
                         $status = "WARNING";
                     }
                 } else {
@@ -235,10 +235,10 @@ function wp_healthcheck_status(WP_REST_Request $request)
                 }
             } else {
                 $cron_status = [
-                    "status" => "FAIL",
+                    "status" => 'CRITICAL',
                     "message" => "Last WP-Cron execution not recorded",
                 ];
-                $status = "FAIL";
+                $status = 'CRITICAL';
             }
         }
         $results["cron"] = $cron_status;
@@ -334,7 +334,6 @@ function wp_healthcheck_status(WP_REST_Request $request)
         // ----------------------
         // Resultado final
         // ----------------------
-        $status = empty($updates) ? 'OK' : 'WARNING';
 
         if (empty($updates)) {
             $message = 'No updates available.';
@@ -356,9 +355,13 @@ function wp_healthcheck_status(WP_REST_Request $request)
         }
 
         $results['updates'] = [
-            'status'  => $status,
+            'status'  => empty($updates) ? 'OK' : 'WARNING',
             'message' => $message,
         ];
+        
+        if (!empty($updates) && ($status !== 'CRITICAL')) {
+            $status = "WARNING";
+        }
     }
 
     return new WP_REST_Response(
