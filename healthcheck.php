@@ -3,7 +3,7 @@
 Plugin Name: Custom Healthcheck (MU)
 Description: Endpoint REST JSON para monitorear WordPress.
 Author: Ramón Román Castro <ramonromancastro@gmail.com>
-Version: 0.20260114.1
+Version: 0.20260114.4
 */
 
 // Genera una clave segura de 32 caracteres hexadecimales
@@ -185,7 +185,7 @@ function wp_healthcheck_status(WP_REST_Request $request)
     }
     
     // 
-    // Database test
+    // FileSystem test
     //
     
     if (!in_array('filesystem', $exclude_list)) {
@@ -364,6 +364,7 @@ function wp_healthcheck_status(WP_REST_Request $request)
         }
     }
 
+    ksort($results);
     return new WP_REST_Response(
         ["status" => $status, "checks" => $results],
         200
